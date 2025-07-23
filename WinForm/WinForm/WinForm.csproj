@@ -1,0 +1,36 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    
+    <!-- Application Information -->
+    <AssemblyTitle>AlwaysDown</AssemblyTitle>
+    <AssemblyDescription>Keep your applications running - always down, never down!</AssemblyDescription>
+    <AssemblyCompany>AlwaysDown</AssemblyCompany>
+    <AssemblyProduct>AlwaysDown Application Manager</AssemblyProduct>
+    <AssemblyCopyright>Copyright © 2024</AssemblyCopyright>
+    <AssemblyVersion>1.1.0.0</AssemblyVersion>
+    <FileVersion>1.1.0.0</FileVersion>
+    <ProductVersion>1.1.0</ProductVersion>
+    
+    <!-- Publishing Options (applied during publish, not build) -->
+    <PublishSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</PublishSingleFile>
+    <PublishReadyToRun Condition="'$(RuntimeIdentifier)' != ''">true</PublishReadyToRun>
+    <PublishTrimmed>false</PublishTrimmed>
+    <IncludeNativeLibrariesForSelfExtract Condition="'$(RuntimeIdentifier)' != ''">true</IncludeNativeLibrariesForSelfExtract>
+    <IncludeAllContentForSelfExtract Condition="'$(RuntimeIdentifier)' != ''">true</IncludeAllContentForSelfExtract>
+
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="8.0.0" />
+  </ItemGroup>
+
+</Project>
