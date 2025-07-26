@@ -17,7 +17,9 @@ Keep your applications running - always down, never down! A comprehensive Window
 - **Auto-scroll**: Automatically scroll to latest log entries
 
 ### 🔧 System Integration
-- **Windows Services**: Convert Node.js applications into Windows services for persistence
+- **Windows Services**: Convert applications into Windows services with meaningful names for persistence
+- **Service Name Generation**: Services are named using your application name (e.g., "AlwaysDown_MyWebApp" instead of random IDs)
+- **Service Migration**: Automatically handles service name changes when you rename applications
 - **System Tray**: Minimize to system tray for background operation
 - **Administrator Privileges**: Automatic elevation for service management operations
 - **Auto-start**: Configure applications to start automatically with Windows
@@ -48,7 +50,7 @@ Keep your applications running - always down, never down! A comprehensive Window
 
 1. Click **"Add App"** button or use **File → Add Application**
 2. Fill in the application details:
-   - **Name**: Display name for your application
+   - **Name**: Display name for your application (this will be used for the service name)
    - **Description**: Optional description
    - **Project Path**: Path to your Node.js project directory
    - **Start Command**: Command to start your application (e.g., `npm run start`)
@@ -66,8 +68,17 @@ Keep your applications running - always down, never down! A comprehensive Window
 #### Installing as Windows Service
 - Select an application
 - Click **"Install Service"** button
-- The application will be installed as a Windows service
+- The application will be installed as a Windows service with a meaningful name
+- Service name format: `AlwaysDown_[YourAppName]` (e.g., "AlwaysDown_WebAPI", "AlwaysDown_ChatBot")
 - Service will automatically start on system boot
+- If you rename your application, the service will be automatically migrated to the new name
+
+#### Service Name Examples
+```
+Application Name: "My Web API"     → Service Name: "AlwaysDown_My_Web_API"
+Application Name: "ChatBot"        → Service Name: "AlwaysDown_ChatBot"
+Application Name: "Data Processor" → Service Name: "AlwaysDown_Data_Processor"
+```
 
 #### Viewing Logs
 1. Switch to the **"Logs"** tab
@@ -89,7 +100,7 @@ The application stores configurations in:
 Logs are stored in:
 ```
 %LocalAppData%\AlwaysDown\Logs\
-└── [service-name].log       # Individual application logs
+└── [service-name].log       # Individual application logs (named after service)
 ```
 
 ## Architecture

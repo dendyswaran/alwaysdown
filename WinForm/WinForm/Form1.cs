@@ -35,13 +35,13 @@ namespace WinForm
             _processManager.ProcessLogReceived += OnProcessLogReceived;
             
             // Initialize UI
-            InitializeUI();
+            _ = InitializeUI();
             
             // Load applications
             _ = LoadApplicationsAsync();
         }
         
-        private async void InitializeUI()
+        private async Task InitializeUI()
         {
             // Set window icon
             this.Icon = SystemIcons.Application;
@@ -72,7 +72,7 @@ namespace WinForm
             
             // Clear details panel initially
             ClearApplicationDetails();
-            UpdateUI();
+            await UpdateUI();
         }
         
         private async Task LoadApplicationsAsync()
@@ -106,7 +106,7 @@ namespace WinForm
                     }
                 }
                 
-                RefreshApplicationsList();
+                await RefreshApplicationsList();
                 RefreshLogsList();
                 SetStatus("Applications loaded successfully.");
             }
@@ -116,7 +116,7 @@ namespace WinForm
             }
         }
         
-        private void RefreshApplicationsList()
+        private async Task RefreshApplicationsList()
         {
             applicationsListView.Items.Clear();
             
@@ -144,7 +144,7 @@ namespace WinForm
                 applicationsListView.Items.Add(item);
             }
             
-            UpdateUI();
+            await UpdateUI();
         }
         
         private void RefreshLogsList()
@@ -168,7 +168,48 @@ namespace WinForm
             }
         }
         
-        private void UpdateUI()
+        private async Task UpdateUI()
+        {
+            var hasSelection = _selectedApplication != null;
+            var isRunning = hasSelection && _selectedApplication.IsRunning;
+            var hasService = hasSelection && await _serviceManager.ServiceExistsAsync(_selectedApplication.ServiceName);
+            
+            // Toolbar buttons
+            startAppButton.Enabled = hasSelection && !isRunning;
+            stopAppButton.Enabled = hasSelection && isRunning;
+            restartAppButton.Enabled = hasSelection;
+            removeAppButton.Enabled = hasSelection && !_isEditing;
+            
+            // Enable service buttons
+            installServiceButton.Enabled = hasSelection && !hasService && !_isEditing;
+            uninstallServiceButton.Enabled = hasSelection && hasService && !_isEditing;
+            installServiceButton.ToolTipText = hasService ? "Service already installed" : "Install as Windows Service";
+            uninstallServiceButton.ToolTipText = hasService ? "Uninstall Windows Service" : "No service installed";
+            
+            // Context menu
+            startContextMenuItem.Enabled = startAppButton.Enabled;
+            stopContextMenuItem.Enabled = stopAppButton.Enabled;
+            restartContextMenuItem.Enabled = restartAppButton.Enabled;
+            installServiceContextMenuItem.Enabled = installServiceButton.Enabled;
+            uninstallServiceContextMenuItem.Enabled = uninstallServiceButton.Enabled;
+            editContextMenuItem.Enabled = hasSelection && !_isEditing;
+            deleteContextMenuItem.Enabled = removeAppButton.Enabled;
+            
+            // Details panel
+            saveButton.Enabled = _isEditing;
+            cancelButton.Enabled = _isEditing;
+            
+            var detailsEnabled = hasSelection && _isEditing;
+            nameTextBox.ReadOnly = !detailsEnabled;
+            descriptionTextBox.ReadOnly = !detailsEnabled;
+            pathTextBox.ReadOnly = !detailsEnabled;
+            commandTextBox.ReadOnly = !detailsEnabled;
+            portNumericUpDown.Enabled = detailsEnabled;
+            autoStartCheckBox.Enabled = detailsEnabled;
+            browseButton.Enabled = detailsEnabled;
+        }
+        
+        private void UpdateUISync()
         {
             var hasSelection = _selectedApplication != null;
             var isRunning = hasSelection && _selectedApplication.IsRunning;
@@ -180,18 +221,18 @@ namespace WinForm
             restartAppButton.Enabled = hasSelection;
             removeAppButton.Enabled = hasSelection && !_isEditing;
             
-            // Disable service buttons - service installation is not available
-            installServiceButton.Enabled = false;
-            uninstallServiceButton.Enabled = false;
-            installServiceButton.ToolTipText = "Service installation temporarily disabled. Use Auto Start instead.";
-            uninstallServiceButton.ToolTipText = "Service installation temporarily disabled.";
+            // Service buttons (conservative approach for sync version)
+            installServiceButton.Enabled = hasSelection && !hasService && !_isEditing;
+            uninstallServiceButton.Enabled = hasSelection && hasService && !_isEditing;
+            installServiceButton.ToolTipText = hasService ? "Service already installed" : "Install as Windows Service";
+            uninstallServiceButton.ToolTipText = hasService ? "Uninstall Windows Service" : "No service installed";
             
             // Context menu
             startContextMenuItem.Enabled = startAppButton.Enabled;
             stopContextMenuItem.Enabled = stopAppButton.Enabled;
             restartContextMenuItem.Enabled = restartAppButton.Enabled;
-            installServiceContextMenuItem.Enabled = false;
-            uninstallServiceContextMenuItem.Enabled = false;
+            installServiceContextMenuItem.Enabled = installServiceButton.Enabled;
+            uninstallServiceContextMenuItem.Enabled = uninstallServiceButton.Enabled;
             editContextMenuItem.Enabled = hasSelection && !_isEditing;
             deleteContextMenuItem.Enabled = removeAppButton.Enabled;
             
@@ -393,12 +434,12 @@ namespace WinForm
                 _applications.Remove(_selectedApplication);
                 await SaveApplicationsAsync();
                 
-                RefreshApplicationsList();
+                await RefreshApplicationsList();
                 RefreshLogsList();
                 ClearApplicationDetails();
                 _selectedApplication = null;
                 _isEditing = false;
-                UpdateUI();
+                await UpdateUI();
                 
                 SetStatus("Application removed successfully.");
             }
@@ -452,7 +493,7 @@ namespace WinForm
                 if (success)
                 {
                     SetStatus($"{_selectedApplication.GetDisplayName()} started successfully.");
-                    RefreshApplicationsList();
+                    await RefreshApplicationsList();
                 }
                 else
                 {
@@ -529,7 +570,7 @@ namespace WinForm
                     if (success)
                     {
                         SetStatus($"{_selectedApplication.GetDisplayName()} stopped successfully.");
-                        RefreshApplicationsList();
+                        await RefreshApplicationsList();
                     }
                     else
                     {
@@ -552,7 +593,7 @@ namespace WinForm
             finally
             {
                 progressBar.Visible = false;
-                UpdateUI(); // This will re-enable the stop button if needed
+                await UpdateUI(); // This will re-enable the stop button if needed
             }
         }
         
@@ -600,7 +641,7 @@ namespace WinForm
                 if (success)
                 {
                     SetStatus($"Windows service installed successfully for {_selectedApplication.GetDisplayName()}.");
-                    RefreshApplicationsList();
+                    await RefreshApplicationsList();
                 }
                 else
                 {
@@ -614,7 +655,7 @@ namespace WinForm
             finally
             {
                 progressBar.Visible = false;
-                UpdateUI();
+                UpdateUISync();
             }
         }
         
@@ -634,7 +675,7 @@ namespace WinForm
                 if (success)
                 {
                     SetStatus($"Windows service uninstalled successfully.");
-                    RefreshApplicationsList();
+                    await RefreshApplicationsList();
                 }
                 else
                 {
@@ -648,7 +689,7 @@ namespace WinForm
             finally
             {
                 progressBar.Visible = false;
-                UpdateUI();
+                UpdateUISync();
             }
         }
         
@@ -658,7 +699,7 @@ namespace WinForm
             
             _isEditing = true;
             LoadApplicationDetails(_selectedApplication);
-            UpdateUI();
+            UpdateUISync();
         }
         
         private async void SaveApplication_Click(object sender, EventArgs e)
@@ -668,7 +709,25 @@ namespace WinForm
             try
             {
                 var oldAutoStart = _selectedApplication.AutoStart;
+                var oldServiceName = _selectedApplication.ServiceName;
+                
                 SaveApplicationDetails(_selectedApplication);
+                
+                // Handle service name change (due to application name change)
+                if (oldServiceName != _selectedApplication.ServiceName)
+                {
+                    try
+                    {
+                        // Migrate the service if it exists
+                        await _serviceManager.MigrateServiceAsync(oldServiceName, _selectedApplication);
+                        SetStatus($"Service migrated from '{oldServiceName}' to '{_selectedApplication.ServiceName}'.");
+                    }
+                    catch (Exception ex)
+                    {
+                        ShowError($"Failed to migrate service: {ex.Message}");
+                        // Continue with saving even if migration fails
+                    }
+                }
                 
                 // Handle auto-start setting change
                 if (oldAutoStart != _selectedApplication.AutoStart)
@@ -679,9 +738,9 @@ namespace WinForm
                 await SaveApplicationsAsync();
                 
                 _isEditing = false;
-                RefreshApplicationsList();
+                await RefreshApplicationsList();
                 RefreshLogsList();
-                UpdateUI();
+                await UpdateUI();
                 
                 SetStatus("Application saved successfully.");
             }
@@ -697,7 +756,7 @@ namespace WinForm
             
             _isEditing = false;
             LoadApplicationDetails(_selectedApplication);
-            UpdateUI();
+            UpdateUISync();
         }
         
         private void Browse_Click(object sender, EventArgs e)
@@ -799,7 +858,7 @@ namespace WinForm
             }
             
             _isEditing = false;
-            UpdateUI();
+            UpdateUISync();
         }
         
         private async void LogAppsListBox_SelectedIndexChanged(object sender, EventArgs e)
@@ -861,7 +920,7 @@ namespace WinForm
                 
                 if (wasRunning != app.IsRunning)
                 {
-                    RefreshApplicationsList();
+                    await RefreshApplicationsList();
                 }
             }
         }

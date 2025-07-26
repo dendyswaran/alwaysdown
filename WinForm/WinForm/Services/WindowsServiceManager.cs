@@ -24,10 +24,49 @@ namespace WinForm.Services
         {
             try
             {
-                // For now, let's use a simpler approach - direct process management without Windows services
-                // This avoids the complexity of Windows service installation while still providing persistence
-                ShowServiceInstallationMessage();
-                return false; // Indicate that service installation is not available in this version
+                // Ensure the service wrapper exists
+                await CreateServiceWrapperAsync(app);
+                
+                // Create a service-specific batch file
+                var batchPath = Path.Combine(Path.GetDirectoryName(_serviceWrapperPath)!, $"{app.ServiceName}.bat");
+                await CreateServiceBatchFileAsync(app, batchPath);
+                
+                // Create the Windows service using sc.exe
+                var serviceName = app.ServiceName;
+                var displayName = $"AlwaysDown - {app.GetDisplayName()}";
+                var description = $"Node.js application service for {app.GetDisplayName()} - {app.Description}";
+                
+                // Install the service
+                var installArgs = $"create \"{serviceName}\" binPath= \"cmd.exe /c \\\"{batchPath}\\\"\" DisplayName= \"{displayName}\" start= auto";
+                
+                var processInfo = new ProcessStartInfo
+                {
+                    FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "sc.exe"),
+                    Arguments = installArgs,
+                    UseShellExecute = true,
+                    Verb = "runas", // Request admin elevation
+                    CreateNoWindow = true,
+                    WindowStyle = ProcessWindowStyle.Hidden
+                };
+                
+                using var process = Process.Start(processInfo);
+                if (process != null)
+                {
+                    await process.WaitForExitAsync();
+                    
+                    if (process.ExitCode == 0)
+                    {
+                        // Set service description
+                        await SetServiceDescriptionAsync(serviceName, description);
+                        
+                        // Configure service for failure recovery
+                        await ConfigureServiceRecoveryAsync(serviceName);
+                        
+                        return true;
+                    }
+                }
+                
+                return false;
             }
             catch (Exception ex)
             {
@@ -35,31 +74,7 @@ namespace WinForm.Services
             }
         }
         
-        private void ShowServiceInstallationMessage()
-        {
-            var message = @"Windows Service installation is currently disabled due to compatibility issues.
 
-Alternative approaches for persistence:
-
-1. **Task Scheduler**: Use Windows Task Scheduler to run your Node.js app at startup
-2. **PM2**: Install PM2 globally (npm install -g pm2) and use it to manage Node.js processes
-3. **Manual Service**: Use tools like NSSM (Non-Sucking Service Manager) to create services manually
-
-For now, you can:
-- Use the 'Start' button to run your application normally
-- Check 'Auto Start with Windows' to add it to startup programs
-- Monitor logs in the Logs tab
-
-We recommend using PM2 for production Node.js applications:
-  npm install -g pm2
-  pm2 start your-app.js --name ""your-app""
-  pm2 startup
-  pm2 save";
-            
-            System.Windows.Forms.MessageBox.Show(message, "Service Installation", 
-                System.Windows.Forms.MessageBoxButtons.OK, 
-                System.Windows.Forms.MessageBoxIcon.Information);
-        }
         
         public async Task<bool> UninstallServiceAsync(NodeJsApplication app)
         {
@@ -311,6 +326,34 @@ We recommend using PM2 for production Node.js applications:
             }
         }
         
+        private async Task ConfigureServiceRecoveryAsync(string serviceName)
+        {
+            try
+            {
+                // Configure service to restart automatically on failure
+                // Restart after 1 minute for first and second failures, restart after 5 minutes for subsequent failures
+                var processInfo = new ProcessStartInfo
+                {
+                    FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "sc.exe"),
+                    Arguments = $"failure \"{serviceName}\" reset= 86400 actions= restart/60000/restart/60000/restart/300000",
+                    UseShellExecute = true,
+                    Verb = "runas",
+                    CreateNoWindow = true,
+                    WindowStyle = ProcessWindowStyle.Hidden
+                };
+                
+                using var process = Process.Start(processInfo);
+                if (process != null)
+                {
+                    await process.WaitForExitAsync();
+                }
+            }
+            catch
+            {
+                // Ignore errors setting recovery options
+            }
+        }
+        
         private async Task CreateServiceWrapperAsync(NodeJsApplication app)
         {
             // Create a simple wrapper script that can be used by multiple services
@@ -348,6 +391,13 @@ goto end
 :end
 ";
             
+            // Ensure the directory exists
+            var directory = Path.GetDirectoryName(_serviceWrapperPath);
+            if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+            
             await File.WriteAllTextAsync(_serviceWrapperPath, wrapperContent);
         }
         
@@ -362,9 +412,16 @@ goto end
                 Directory.CreateDirectory(logDir);
             }
             
+            // Ensure the batch file directory exists
+            var batchDir = Path.GetDirectoryName(batchPath);
+            if (!string.IsNullOrEmpty(batchDir) && !Directory.Exists(batchDir))
+            {
+                Directory.CreateDirectory(batchDir);
+            }
+            
             var batchContent = $@"@echo off
 REM Service batch file for {app.GetDisplayName()}
-REM Auto-generated by Node.js Application Manager
+REM Auto-generated by AlwaysDown Application Manager
 
 setlocal EnableDelayedExpansion
 
@@ -372,7 +429,7 @@ REM Set up logging
 set LOG_FILE=""{logFilePath}""
 
 REM Function to log with timestamp
-call :log ""Service starting...""
+call :log ""Service starting for {app.GetDisplayName()}...""
 
 REM Check if project directory exists
 if not exist ""{app.ProjectPath}"" (
@@ -389,14 +446,19 @@ if errorlevel 1 (
 
 call :log ""Changed to directory: %CD%""
 
-REM Check if package.json exists
-if not exist ""package.json"" (
+REM Check if package.json exists (for Node.js projects)
+if exist ""package.json"" (
+    call :log ""Found package.json in project directory""
+) else (
     call :log ""WARNING: package.json not found in project directory""
 )
 
+REM Set environment variables if needed
+set NODE_ENV=production
+
 call :log ""Executing command: {app.StartCommand}""
 
-REM Execute the Node.js command and redirect output to log file
+REM Execute the application command and redirect output to log file
 {app.StartCommand} >> %LOG_FILE% 2>&1
 
 set EXIT_CODE=%ERRORLEVEL%
@@ -501,6 +563,95 @@ start """" {app.StartCommand}";
             catch (Exception ex)
             {
                 throw new Exception($"Error setting auto-start: {ex.Message}", ex);
+            }
+        }
+        
+        /// <summary>
+        /// Migrates a service from an old name to a new name (useful when application name changes)
+        /// </summary>
+        public async Task<bool> MigrateServiceAsync(string oldServiceName, NodeJsApplication app)
+        {
+            try
+            {
+                var newServiceName = app.ServiceName;
+                
+                // If names are the same, no migration needed
+                if (oldServiceName == newServiceName)
+                    return true;
+                
+                // Check if old service exists
+                if (!await ServiceExistsAsync(oldServiceName))
+                    return true; // No old service to migrate
+                
+                // Check if new service already exists
+                if (await ServiceExistsAsync(newServiceName))
+                {
+                    // New service already exists, can't migrate
+                    throw new Exception($"Cannot migrate service: A service with name '{newServiceName}' already exists.");
+                }
+                
+                // Stop the old service if running
+                try
+                {
+                    await StopServiceAsync(oldServiceName);
+                }
+                catch
+                {
+                    // Continue even if stop fails
+                }
+                
+                // Uninstall the old service
+                var uninstallSuccess = await UninstallServiceByNameAsync(oldServiceName);
+                if (!uninstallSuccess)
+                {
+                    throw new Exception($"Failed to uninstall old service '{oldServiceName}'");
+                }
+                
+                // Install the new service
+                var installSuccess = await InstallServiceAsync(app);
+                if (!installSuccess)
+                {
+                    throw new Exception($"Failed to install new service '{newServiceName}'");
+                }
+                
+                return true;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error migrating service from '{oldServiceName}' to '{app.ServiceName}': {ex.Message}", ex);
+            }
+        }
+        
+        /// <summary>
+        /// Uninstalls a service by name (internal helper method)
+        /// </summary>
+        private async Task<bool> UninstallServiceByNameAsync(string serviceName)
+        {
+            try
+            {
+                // Stop service first if running
+                await StopServiceAsync(serviceName);
+                
+                var processInfo = new ProcessStartInfo
+                {
+                    FileName = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "sc.exe"),
+                    Arguments = $"delete \"{serviceName}\"",
+                    UseShellExecute = true,
+                    Verb = "runas" // This will prompt for admin elevation
+                };
+                
+                using var process = Process.Start(processInfo);
+                if (process != null)
+                {
+                    await process.WaitForExitAsync();
+                    return process.ExitCode == 0;
+                }
+                
+                return false;
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error uninstalling service '{serviceName}': {ex.Message}", ex);
             }
         }
 
